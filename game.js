@@ -62,7 +62,7 @@ const STATE = {
   inGame: false,
   myScore: 0, enemyScore: 0, round: 1, maxRounds: 3,
   hits: 0, crits: 0, blocks: 0, dismembers: 0,
-  combo: 0, bestCombo: 0, comboExpireAt: 0, feverUntil: 0,
+  combo: 0, bestCombo: 0, comboExpireAt: 0, feverUntil: 0, feverStartCombo: 0,
 };
 const COMBO_WINDOW_MS = 1800;
 const FEVER_TRIGGER_COMBO = 5;
@@ -2128,6 +2128,7 @@ function registerPlayerCombo() {
   player.ki = Math.min(player.maxKi, player.ki + kiBonus);
   if (STATE.combo >= FEVER_TRIGGER_COMBO && now >= STATE.feverUntil) {
     STATE.feverUntil = now + FEVER_DURATION_MS;
+    STATE.feverStartCombo = STATE.combo;
     player.boostUntil = Math.max(player.boostUntil, STATE.feverUntil);
     showCenterMsg('覚醒！', 900);
     playSound('item', 1.15);
@@ -2146,6 +2147,7 @@ function startRound() {
   player.ki = 0; enemy.ki = 0;
   resetPlayerCombo();
   STATE.feverUntil = 0;
+  STATE.feverStartCombo = 0;
   player.swingYaw = 0; player.swingPitch = 0; player.swingRoll = 0;
   player.mesh.rotation.x = 0; enemy.mesh.rotation.x = 0;
   player.mesh.userData.severed = { head:false, lArm:false, rArm:false };
@@ -2204,6 +2206,8 @@ function exitToMenu() {
   resetPlayerCombo();
   STATE.bestCombo = 0;
   STATE.feverUntil = 0;
+  STATE.feverStartCombo = 0;
+  STATE.feverStartCombo = 0;
   document.getElementById('hud').classList.add('hidden');
   document.getElementById('result').classList.add('hidden');
   document.getElementById('menu').classList.remove('hidden');
@@ -2226,7 +2230,7 @@ function updateHUD() {
   if (comboEl) {
     const fever = performance.now() < STATE.feverUntil;
     comboEl.classList.toggle('fever', fever);
-    if (fever) comboEl.textContent = `${Math.max(STATE.combo, FEVER_TRIGGER_COMBO)} 連撃 - 覚醒中`;
+    if (fever) comboEl.textContent = `${Math.max(STATE.combo, STATE.feverStartCombo || FEVER_TRIGGER_COMBO)} 連撃 - 覚醒中`;
     else if (STATE.combo >= 2) comboEl.textContent = `${STATE.combo} 連撃`;
     else comboEl.textContent = '';
   }
