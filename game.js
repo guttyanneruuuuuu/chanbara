@@ -67,6 +67,8 @@ const STATE = {
 const COMBO_WINDOW_MS = 1800;
 const FEVER_TRIGGER_COMBO = 5;
 const FEVER_DURATION_MS = 6000;
+const COMBO_KI_MULTIPLIER = 0.7;
+const MAX_COMBO_KI_BONUS = 6;
 
 // =================================================================
 //  Three.js setup
@@ -2122,7 +2124,7 @@ function registerPlayerCombo() {
   STATE.combo = (now <= STATE.comboExpireAt) ? (STATE.combo + 1) : 1;
   STATE.comboExpireAt = now + COMBO_WINDOW_MS;
   STATE.bestCombo = Math.max(STATE.bestCombo, STATE.combo);
-  player.ki = Math.min(player.maxKi, player.ki + Math.min(STATE.combo * 0.7, 6));
+  player.ki = Math.min(player.maxKi, player.ki + Math.min(STATE.combo * COMBO_KI_MULTIPLIER, MAX_COMBO_KI_BONUS));
   if (STATE.combo >= FEVER_TRIGGER_COMBO && now >= STATE.feverUntil) {
     STATE.feverUntil = now + FEVER_DURATION_MS;
     player.boostUntil = Math.max(player.boostUntil, STATE.feverUntil);
@@ -2223,8 +2225,9 @@ function updateHUD() {
   if (comboEl) {
     const fever = performance.now() < STATE.feverUntil;
     comboEl.classList.toggle('fever', fever);
-    if (STATE.combo >= 2) comboEl.textContent = fever ? `${STATE.combo} 連撃 - 覚醒中` : `${STATE.combo} 連撃`;
-    else comboEl.textContent = fever ? '覚醒中' : '';
+    if (fever) comboEl.textContent = STATE.combo > 0 ? `${STATE.combo} 連撃 - 覚醒中` : '覚醒中';
+    else if (STATE.combo >= 2) comboEl.textContent = `${STATE.combo} 連撃`;
+    else comboEl.textContent = '';
   }
   // 必殺ボタン光らせる
   const spBtn = document.getElementById('btn-special');
