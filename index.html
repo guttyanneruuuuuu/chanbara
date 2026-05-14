@@ -38,8 +38,10 @@
       </div>
 
       <div class="footer-note">
-        画面を <b>指でスワイプ</b> して刀を振れ。<br>
-        左下スティックで歩き、右ボタンで防御・回避・必殺。
+        <b>画面のどこでも 指 1 本 でよい。</b><br>
+        ゆるりと動かせば 歩み、<br>
+        鋭く払えば 刀の 一閃。<br>
+        敵に刃を 当てよ ── 手 に 響く。
       </div>
     </div>
   </div>
@@ -126,14 +128,18 @@
       <div id="center-msg" class="center-msg"></div>
     </div>
 
-    <!-- バーチャルスティック (左下) -->
-    <div id="stick-zone" class="stick-zone">
-      <div id="stick-base" class="stick-base">
-        <div id="stick-knob" class="stick-knob"></div>
-      </div>
+    <!-- 指の軌跡インジケータ -->
+    <div id="finger-indicator" class="finger-indicator hidden">
+      <div class="finger-ring"></div>
     </div>
 
-    <!-- アクションボタン群 (右下) -->
+    <!-- 操作ヒント (最初の数秒だけ) -->
+    <div id="control-hint" class="control-hint">
+      <div class="hint-line">画面を 触れたまま 指で操作</div>
+      <div class="hint-sub">ゆっくり=歩み　速く払え=斬撃</div>
+    </div>
+
+    <!-- アクションボタン群 (右下・必殺技と補助のみ) -->
     <div id="action-zone" class="action-zone">
       <button class="action-btn act-special" id="btn-special" title="必殺">必</button>
       <button class="action-btn act-guard" id="btn-guard" title="受け">受</button>

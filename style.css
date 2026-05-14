@@ -444,37 +444,61 @@ input[type="text"]:focus {
 }
 .center-msg.show { opacity: 1; transform: scale(1); }
 
-/* バーチャルスティック (左下) */
-.stick-zone {
-  position: absolute;
-  left: 0; bottom: 0;
-  width: 42vw;
-  height: 42vw;
-  max-width: 220px;
-  max-height: 220px;
-  pointer-events: auto;
-  touch-action: none;
+/* 指の位置インジケータ (Ragdoll Blade風・指の周りに半透明のリング) */
+.finger-indicator {
+  position: fixed;
+  left: 0; top: 0;
+  width: 0; height: 0;
+  pointer-events: none;
+  z-index: 4;
+  transition: opacity 0.18s;
 }
-.stick-base {
+.finger-indicator.hidden { opacity: 0; }
+.finger-ring {
   position: absolute;
-  left: 18px; bottom: 18px;
-  width: 120px; height: 120px;
+  left: 0; top: 0;
+  width: 90px; height: 90px;
+  margin-left: -45px;
+  margin-top: -45px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(239,230,212,0.18), rgba(20,15,10,0.45));
-  border: 2px solid rgba(239,230,212,0.45);
-  box-shadow: 0 6px 18px rgba(0,0,0,0.4), inset 0 0 18px rgba(0,0,0,0.4);
-  touch-action: none;
+  border: 2px solid rgba(239,230,212,0.55);
+  background: radial-gradient(circle, rgba(239,230,212,0.10), rgba(20,15,10,0.0) 70%);
+  box-shadow: 0 0 22px rgba(239,230,212,0.18);
+  transition: transform 0.12s ease;
 }
-.stick-knob {
+.finger-indicator.swing .finger-ring {
+  border-color: rgba(240,208,80,0.9);
+  box-shadow: 0 0 32px rgba(240,208,80,0.6);
+  transform: scale(1.18);
+}
+.finger-indicator.walk .finger-ring {
+  border-color: rgba(108,180,140,0.7);
+}
+
+/* 操作ヒント (最初の数秒だけ画面中央下に淡く表示) */
+.control-hint {
   position: absolute;
-  left: 50%; top: 50%;
-  width: 56px; height: 56px;
-  border-radius: 50%;
-  background: radial-gradient(circle, #c8b07a, #6b4423);
-  border: 2px solid rgba(239,230,212,0.85);
+  left: 50%;
+  top: 58%;
   transform: translate(-50%, -50%);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-  transition: background 0.15s;
+  pointer-events: none;
+  z-index: 4;
+  text-align: center;
+  color: rgba(239,230,212,0.85);
+  text-shadow: 0 2px 6px rgba(0,0,0,0.85);
+  letter-spacing: 0.18em;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+.control-hint.show { opacity: 1; }
+.control-hint .hint-line {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.control-hint .hint-sub {
+  font-size: 12px;
+  color: rgba(239,230,212,0.65);
 }
 
 /* アクションボタン (右下) */
@@ -659,10 +683,8 @@ input[type="text"]:focus {
 
 /* レスポンシブ (小さい画面用調整) */
 @media (max-height: 500px) {
-  .stick-base { width: 100px; height: 100px; left: 12px; bottom: 12px; }
-  .stick-knob { width: 46px; height: 46px; }
-  .action-btn { width: 54px; height: 54px; font-size: 20px; }
-  .action-btn.act-special { width: 64px; height: 50px; }
+  .action-btn { width: 50px; height: 50px; font-size: 18px; }
+  .action-btn.act-special { width: 60px; height: 46px; }
   .hud-top { padding: 6px 8px; }
   .item-bar { bottom: 4px; }
   .item-slot { width: 42px; height: 42px; }
@@ -671,10 +693,10 @@ input[type="text"]:focus {
 @media (max-width: 380px) {
   .brush-title { font-size: 60px; }
   .ink-btn { padding: 12px 14px; font-size: 15px; }
-  .action-btn { width: 56px; height: 56px; font-size: 20px; }
+  .action-btn { width: 52px; height: 52px; font-size: 18px; }
 }
 
-/* 横向き推奨 */
+/* 縦持ち */
 @media (orientation: portrait) and (max-width: 700px) {
   .item-bar { bottom: 90px; }
 }
