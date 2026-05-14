@@ -846,7 +846,8 @@ class Fighter {
   }
 
   dodge(dir) {
-    if (this.state === 'attack' || this.state === 'heavy' || this.state === 'hit' || this.state === 'dodge' || this.state === 'dead' || this.mesh.position.y > this.groundY + 0.02) return false;
+    const isAirborne = this.mesh.position.y > this.groundY + 0.02;
+    if (this.state === 'attack' || this.state === 'heavy' || this.state === 'hit' || this.state === 'dodge' || this.state === 'dead' || isAirborne) return false;
     if (this.cooldown > 0) return false;
     if (this.stamina < 22) return false;
     this.stamina -= 22;
@@ -1588,6 +1589,8 @@ const JUMP_POWER = 6.6;
 const JUMP_FLICK_MIN_DY = -14;
 const JUMP_FLICK_DIRECTIONAL_RATIO = 1.15;
 const JUMP_FLICK_MIN_VELOCITY = 12;
+const SLASH_DIR_MAX = 1.4;
+const SLASH_DIR_SPEED_DIVISOR = 20;
 
 // ─── Ragdoll Blade風: 1本指で「移動 + 刀振り」を兼ねる ─────────
 // 指を画面に置く → 起点を記録
@@ -1676,8 +1679,8 @@ function setupUnifiedTouch() {
       const targetPitch = Math.max(-1.35, Math.min(1.35, (oy / maxR) * 1.25));
       player.swingYaw = player.swingYaw * 0.62 + targetYaw * 0.38 + dx * 0.008;
       player.swingPitch = player.swingPitch * 0.62 + targetPitch * 0.38 + dy * 0.008;
-      player.slashDirX = Math.max(-1.4, Math.min(1.4, dx / 20));
-      player.slashDirY = Math.max(-1.4, Math.min(1.4, dy / 20));
+      player.slashDirX = Math.max(-SLASH_DIR_MAX, Math.min(SLASH_DIR_MAX, dx / SLASH_DIR_SPEED_DIVISOR));
+      player.slashDirY = Math.max(-SLASH_DIR_MAX, Math.min(SLASH_DIR_MAX, dy / SLASH_DIR_SPEED_DIVISOR));
       // ぐるぐる検出: 角度の連続変化で roll を貯める
       const ang = Math.atan2(dy, dx);
       if (touchState.lastAng !== undefined) {
@@ -1689,7 +1692,10 @@ function setupUnifiedTouch() {
       touchState.lastAng = ang;
 
       // 上フリックでジャンプ
-      if (dy < JUMP_FLICK_MIN_DY && Math.abs(dy) > Math.abs(dx) * JUMP_FLICK_DIRECTIONAL_RATIO && touchState.vMag > JUMP_FLICK_MIN_VELOCITY) {
+      const isUpwardFlick = dy < JUMP_FLICK_MIN_DY;
+      const isVerticallyDominant = Math.abs(dy) > Math.abs(dx) * JUMP_FLICK_DIRECTIONAL_RATIO;
+      const hasMinimumVelocity = touchState.vMag > JUMP_FLICK_MIN_VELOCITY;
+      if (isUpwardFlick && isVerticallyDominant && hasMinimumVelocity) {
         if (player.jump(JUMP_POWER)) {
           playSound('dodge', 1.05);
           sendNet({ t: 'act', a: 'jump', p: JUMP_POWER });
