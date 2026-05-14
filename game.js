@@ -799,8 +799,6 @@ class Fighter {
     this.specialUntil = 0;
     this.items = {};
     this.itemKey = 0;
-    this.handedness = 'center';
-    this.handSign = 1;
   }
 
   setStance(facing) {
@@ -808,13 +806,7 @@ class Fighter {
     this.mesh.rotation.y = facing;
   }
 
-  getWeaponArmSide() {
-    return 'rArm';
-  }
-
   setHandedness() {
-    this.handedness = 'center';
-    this.handSign = 1;
     const p = this.mesh.userData.parts;
     if (!p?.swordPivot || !p?.lElbow || !p?.rElbow) return;
     if (p.swordPivot.parent !== p.rElbow) {
@@ -831,6 +823,7 @@ class Fighter {
   attack(type='light') {
     if (this.state === 'attack' || this.state === 'heavy' || this.state === 'hit' || this.state === 'dodge' || this.state === 'dead') return false;
     if (this.cooldown > 0) return false;
+    // 両手持ち前提なので、両腕を失った時だけ攻撃不可
     if (this.mesh.userData?.severed?.lArm && this.mesh.userData?.severed?.rArm) return false;
     const cost = type === 'heavy' ? this.swordDef.stamCost * 1.7 : this.swordDef.stamCost;
     if (this.stamina < cost) return false;
@@ -1131,8 +1124,8 @@ function spawnFighters(playerSwordId, enemySwordId) {
   const eDef = SWORDS.find(s => s.id === enemySwordId) || SWORDS[0];
   player = new Fighter({ swordDef: pDef, color: 0x294b6d, isPlayer: true, name: STATE.playerName });
   enemy  = new Fighter({ swordDef: eDef, color: 0x6d2929, isPlayer: false, name: STATE.enemyName });
-  player.setHandedness('right');
-  enemy.setHandedness('left');
+  player.setHandedness();
+  enemy.setHandedness();
   player.mesh.position.set(0, 0, 4);
   enemy.mesh.position.set(0, 0, -4);
   player.setStance(Math.PI); // 自分は北を向く(画面奥)
@@ -1591,6 +1584,10 @@ const touchState = {
 // stickState はレガシー互換用 (使われなくなったが他コードからの参照を残すため)
 const stickState = { active:false, dx:0, dy:0, mag:0 };
 const swipeState = { active:false, vMag:0, lastSwingTime:0, lastAng:undefined };
+const JUMP_POWER = 6.6;
+const JUMP_FLICK_MIN_DY = -14;
+const JUMP_FLICK_DIRECTIONAL_RATIO = 1.15;
+const JUMP_FLICK_MIN_VELOCITY = 12;
 
 // ─── Ragdoll Blade風: 1本指で「移動 + 刀振り」を兼ねる ─────────
 // 指を画面に置く → 起点を記録
@@ -1657,7 +1654,7 @@ function setupUnifiedTouch() {
     const ox = clientX - touchState.startX;
     const oy = clientY - touchState.startY;
     const omag = Math.hypot(ox, oy);
-    const maxR = touchState.moveRadius || Math.min(140, Math.min(window.innerWidth, window.innerHeight) * 0.22);
+    const maxR = touchState.moveRadius;
     const dead = 14;
     if (omag > dead) {
       const eff = Math.min(omag - dead, maxR) / maxR;
@@ -1692,10 +1689,10 @@ function setupUnifiedTouch() {
       touchState.lastAng = ang;
 
       // 上フリックでジャンプ
-      if (dy < -14 && Math.abs(dy) > Math.abs(dx) * 1.15 && touchState.vMag > 12) {
-        if (player.jump(6.8)) {
+      if (dy < JUMP_FLICK_MIN_DY && Math.abs(dy) > Math.abs(dx) * JUMP_FLICK_DIRECTIONAL_RATIO && touchState.vMag > JUMP_FLICK_MIN_VELOCITY) {
+        if (player.jump(JUMP_POWER)) {
           playSound('dodge', 1.05);
-          sendNet({ t: 'act', a: 'jump', p: 6.8 });
+          sendNet({ t: 'act', a: 'jump', p: JUMP_POWER });
           showFingerIndicator(clientX, clientY, 'swing');
         }
       }
@@ -1869,9 +1866,9 @@ function setupActionButtons() {
   function doJump() {
     ensureAudio();
     if (!player) return;
-    if (player.jump()) {
+    if (player.jump(JUMP_POWER)) {
       playSound('dodge', 1.05);
-      sendNet({ t: 'act', a: 'jump', p: 6.6 });
+      sendNet({ t: 'act', a: 'jump', p: JUMP_POWER });
     }
   }
   btnJump?.addEventListener('touchstart', e => { doJump(); e.preventDefault(); }, { passive: false });
@@ -1918,7 +1915,7 @@ window.addEventListener('keydown', (e) => {
   } else if (e.code === 'KeyF') {
     if (player) player.guard(!player.guardActive);
   } else if (e.code === 'KeyR') {
-    if (player && player.jump()) { playSound('dodge', 1.05); sendNet({ t: 'act', a: 'jump', p: 6.6 }); }
+    if (player && player.jump(JUMP_POWER)) { playSound('dodge', 1.05); sendNet({ t: 'act', a: 'jump', p: JUMP_POWER }); }
   }
 });
 
@@ -2674,7 +2671,7 @@ function onNetData(data) {
       else if (data.a === 'guard') { enemy.guard(!!data.v); }
       else if (data.a === 'dodge') { enemy.dodge(new THREE.Vector3(data.dx,0,data.dz)); }
       else if (data.a === 'special') { enemy.special(); addSlashTrail(enemy, true); }
-      else if (data.a === 'jump') { enemy.jump(data.p || 6.6); }
+      else if (data.a === 'jump') { enemy.jump(data.p || JUMP_POWER); }
     }
   } else if (data.t === 'item') {
     const other = STATE.isHost ? enemy : player;
