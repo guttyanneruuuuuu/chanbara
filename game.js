@@ -1674,7 +1674,7 @@ function setupUnifiedTouch() {
 
     // 刀の腕姿勢を指の動きに連動させる (Ragdoll Blade風の "腕が指に引っ張られる" 感じ)
     if (player && (player.state === 'idle' || player.state === 'guard')) {
-      // 指の相対位置を刀方向へ直結（横・斜め含め全方向）
+      // 指の相対位置(起点基準)を刀の向きへ直接マップ（横・縦・斜めすべて対応）
       const targetYaw = Math.max(-1.5, Math.min(1.5, (ox / maxR) * 1.45));
       const targetPitch = Math.max(-1.35, Math.min(1.35, (oy / maxR) * 1.25));
       player.swingYaw = player.swingYaw * 0.62 + targetYaw * 0.38 + dx * 0.008;
