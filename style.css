@@ -563,6 +563,10 @@ input[type="text"]:focus {
   background: radial-gradient(circle, #8a3a3a, #4a1818);
   border-color: #c06060;
 }
+.action-btn.act-stance {
+  background: radial-gradient(circle, #6b4c8f, #2a1a46);
+  border-color: #9a78c5;
+}
 .action-btn.act-menu {
   width: 38px; height: 38px;
   font-size: 18px;
