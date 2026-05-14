@@ -62,7 +62,11 @@ const STATE = {
   inGame: false,
   myScore: 0, enemyScore: 0, round: 1, maxRounds: 3,
   hits: 0, crits: 0, blocks: 0, dismembers: 0,
+  combo: 0, bestCombo: 0, comboExpireAt: 0, feverUntil: 0,
 };
+const COMBO_WINDOW_MS = 1800;
+const FEVER_TRIGGER_COMBO = 5;
+const FEVER_DURATION_MS = 6000;
 
 // =================================================================
 //  Three.js setup
@@ -1183,6 +1187,8 @@ function tryHit(attacker, damage, opts={}) {
     if (result === true || result === 'crit') {
       STATE.hits++;
       if (result === 'crit') STATE.crits++;
+      if (attacker === player && target === enemy) registerPlayerCombo();
+      if (target === player) resetPlayerCombo();
       // 切断判定
       let label = '斬！';
       if (bestPart === 'head' && (result === 'crit' || opts.heavy || target.hp <= 0)) {
@@ -2106,6 +2112,26 @@ let ai = null;
 // =================================================================
 let roundActive = false;
 
+function resetPlayerCombo() {
+  STATE.combo = 0;
+  STATE.comboExpireAt = 0;
+}
+
+function registerPlayerCombo() {
+  const now = performance.now();
+  STATE.combo = (now <= STATE.comboExpireAt) ? (STATE.combo + 1) : 1;
+  STATE.comboExpireAt = now + COMBO_WINDOW_MS;
+  STATE.bestCombo = Math.max(STATE.bestCombo, STATE.combo);
+  player.ki = Math.min(player.maxKi, player.ki + Math.min(STATE.combo * 0.7, 6));
+  if (STATE.combo >= FEVER_TRIGGER_COMBO && now >= STATE.feverUntil) {
+    STATE.feverUntil = now + FEVER_DURATION_MS;
+    player.boostUntil = Math.max(player.boostUntil, STATE.feverUntil);
+    showCenterMsg('覚醒！', 900);
+    playSound('item', 1.15);
+    slashVibrate('strong');
+  }
+}
+
 function startRound() {
   player.mesh.position.set(0, 0, 4);
   enemy.mesh.position.set(0, 0, -4);
@@ -2115,6 +2141,8 @@ function startRound() {
   player.state = 'idle'; enemy.state = 'idle';
   player.stamina = player.maxStamina; enemy.stamina = enemy.maxStamina;
   player.ki = 0; enemy.ki = 0;
+  resetPlayerCombo();
+  STATE.feverUntil = 0;
   player.swingYaw = 0; player.swingPitch = 0; player.swingRoll = 0;
   player.mesh.rotation.x = 0; enemy.mesh.rotation.x = 0;
   player.mesh.userData.severed = { head:false, lArm:false, rArm:false };
@@ -2159,7 +2187,7 @@ function showResult() {
   document.getElementById('result-title').textContent = won ? '勝' : '敗';
   document.getElementById('result-title').style.color = won ? '#8b2e2e' : '#3a2a18';
   document.getElementById('result-score').textContent = `${STATE.myScore} - ${STATE.enemyScore}`;
-  document.getElementById('result-stats').innerHTML = `斬撃命中 ${STATE.hits} ／ 会心 ${STATE.crits} ／ 受け ${STATE.blocks} ／ 部位切断 ${STATE.dismembers}`;
+  document.getElementById('result-stats').innerHTML = `斬撃命中 ${STATE.hits} ／ 会心 ${STATE.crits} ／ 受け ${STATE.blocks} ／ 部位切断 ${STATE.dismembers} ／ 最大連撃 ${STATE.bestCombo}`;
   document.getElementById('result').classList.remove('hidden');
   playSound(won ? 'win' : 'lose');
   document.getElementById('kill-vignette')?.classList.remove('active');
@@ -2170,6 +2198,9 @@ function exitToMenu() {
   roundActive = false;
   STATE.myScore = 0; STATE.enemyScore = 0; STATE.round = 1;
   STATE.hits = 0; STATE.crits = 0; STATE.blocks = 0; STATE.dismembers = 0;
+  resetPlayerCombo();
+  STATE.bestCombo = 0;
+  STATE.feverUntil = 0;
   document.getElementById('hud').classList.add('hidden');
   document.getElementById('result').classList.add('hidden');
   document.getElementById('menu').classList.remove('hidden');
@@ -2188,6 +2219,13 @@ function updateHUD() {
   document.getElementById('ki-fill-l').style.width = `${(player.ki/player.maxKi)*100}%`;
   document.getElementById('ki-fill-r').style.width = `${(enemy.ki/enemy.maxKi)*100}%`;
   document.getElementById('score-text').textContent = `${STATE.myScore} - ${STATE.enemyScore}`;
+  const comboEl = document.getElementById('combo-text');
+  if (comboEl) {
+    const fever = performance.now() < STATE.feverUntil;
+    comboEl.classList.toggle('fever', fever);
+    if (STATE.combo >= 2) comboEl.textContent = fever ? `${STATE.combo} 連撃 - 覚醒中` : `${STATE.combo} 連撃`;
+    else comboEl.textContent = fever ? '覚醒中' : '';
+  }
   // 必殺ボタン光らせる
   const spBtn = document.getElementById('btn-special');
   if (spBtn) spBtn.classList.toggle('ready', player.ki >= player.maxKi);
@@ -2235,6 +2273,9 @@ function startGame(mode) {
   STATE.inGame = true;
   STATE.myScore = 0; STATE.enemyScore = 0; STATE.round = 1;
   STATE.hits = 0; STATE.crits = 0; STATE.blocks = 0; STATE.dismembers = 0;
+  resetPlayerCombo();
+  STATE.bestCombo = 0;
+  STATE.feverUntil = 0;
   const mapDef = MAPS.find(m=>m.id===STATE.mapId) || MAPS[0];
   buildArena(mapDef);
   spawnFighters(STATE.swordId, STATE.enemySwordId);
@@ -2275,6 +2316,7 @@ function loop() {
   }
 
   if (STATE.inGame && player && enemy) {
+    if (STATE.combo > 0 && performance.now() > STATE.comboExpireAt) resetPlayerCombo();
     // プレイヤー移動 (スティック入力)
     if (player.state === 'idle' || player.state === 'guard') {
       const dir = getMoveDirVector();
