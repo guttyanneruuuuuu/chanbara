@@ -2229,7 +2229,7 @@ function updateHUD() {
   if (comboEl) {
     const fever = performance.now() < STATE.feverUntil;
     comboEl.classList.toggle('fever', fever);
-    if (fever) comboEl.textContent = `${Math.max(STATE.combo, STATE.feverStartCombo || FEVER_TRIGGER_COMBO)} 連撃 - 覚醒中`;
+    if (fever) comboEl.textContent = `${Math.max(STATE.combo, STATE.feverStartCombo ?? FEVER_TRIGGER_COMBO)} 連撃 - 覚醒中`;
     else if (STATE.combo >= 2) comboEl.textContent = `${STATE.combo} 連撃`;
     else comboEl.textContent = '';
   }
