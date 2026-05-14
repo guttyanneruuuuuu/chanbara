@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>斬 - Chanbara Online</title>
+<title>斬 - Chanbara Online 改</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
 <link rel="stylesheet" href="style.css" />
 </head>
@@ -20,7 +20,7 @@
   <div id="menu" class="overlay hidden">
     <div class="paper menu-paper">
       <div class="brush-title">斬</div>
-      <div class="subtitle">- Chanbara Online -</div>
+      <div class="subtitle">- Chanbara Online 改 -</div>
 
       <div class="name-input-row">
         <label>名前</label>
@@ -35,19 +35,33 @@
       </div>
 
       <div class="footer-note">
-        操作: <b>WASD</b>移動 / <b>マウス</b>視点 / <b>左クリック</b>斬撃 / <b>右クリック</b>受け / <b>Space</b>回避 / <b>Shift</b>強斬り
+        操作: <b>WASD</b>移動 / <b>マウス</b>刀振り / <b>左C</b>斬撃 / <b>右C</b>受け / <b>Space</b>回避 / <b>Shift</b>強斬 / <b>Q</b>必殺技 / <b>E</b>アイテム / <b>1〜4</b>アイテム切替
       </div>
     </div>
   </div>
 
   <!-- ====== 刀選択 ====== -->
   <div id="sword-select" class="overlay hidden">
-    <div class="paper wide-paper">
+    <div class="paper wide-paper sword-paper">
       <div class="section-title">― 得物を 選べ ―</div>
       <div id="sword-list" class="sword-list"></div>
-      <div class="row-buttons">
+      <div id="sword-current" class="sword-current">選択中: <b id="sword-current-name">打刀</b></div>
+      <div class="row-buttons sticky-buttons">
         <button class="ink-btn" id="sword-back">戻る</button>
-        <button class="ink-btn primary" id="sword-confirm">これで 行く</button>
+        <button class="ink-btn primary big" id="sword-confirm">これで 行く 〔Enter〕</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== マップ選択 ====== -->
+  <div id="map-select" class="overlay hidden">
+    <div class="paper wide-paper">
+      <div class="section-title">― 戦場を 選べ ―</div>
+      <div id="map-list" class="map-list"></div>
+      <div id="map-current" class="sword-current">選択中: <b id="map-current-name">道場</b></div>
+      <div class="row-buttons sticky-buttons">
+        <button class="ink-btn" id="map-back">戻る</button>
+        <button class="ink-btn primary big" id="map-confirm">出陣 〔Enter〕</button>
       </div>
     </div>
   </div>
@@ -84,14 +98,25 @@
       <div class="hp-block left">
         <div class="hp-name" id="hp-name-l">自分</div>
         <div class="hp-bar"><div class="hp-fill" id="hp-fill-l"></div></div>
+        <div class="bar-row">
+          <div class="stam-bar"><div class="stam-fill" id="stam-fill-l"></div></div>
+          <div class="ki-bar"><div class="ki-fill" id="ki-fill-l"></div></div>
+        </div>
+        <div class="sword-tag" id="sword-tag-l">打刀</div>
       </div>
       <div class="round-info">
         <div class="round-text" id="round-text">第 一 番 勝負</div>
         <div class="score" id="score-text">0 - 0</div>
+        <div class="map-tag" id="map-tag">道場</div>
       </div>
       <div class="hp-block right">
         <div class="hp-name" id="hp-name-r">相手</div>
         <div class="hp-bar"><div class="hp-fill right" id="hp-fill-r"></div></div>
+        <div class="bar-row right">
+          <div class="stam-bar"><div class="stam-fill" id="stam-fill-r"></div></div>
+          <div class="ki-bar"><div class="ki-fill" id="ki-fill-r"></div></div>
+        </div>
+        <div class="sword-tag" id="sword-tag-r">打刀</div>
       </div>
     </div>
 
@@ -100,12 +125,18 @@
     </div>
 
     <div class="hud-bottom">
+      <div id="item-bar" class="item-bar">
+        <!-- アイテムスロット (JS で生成) -->
+      </div>
       <div class="controls-hint">
         <span><b>WASD</b> 移動</span>
         <span><b>左C</b> 斬</span>
         <span><b>右C</b> 受</span>
         <span><b>Shift+左C</b> 強斬</span>
         <span><b>Space</b> 回避</span>
+        <span><b>Q</b> 必殺</span>
+        <span><b>E</b> 使用</span>
+        <span><b>1〜4</b> 持替</span>
         <span><b>ESC</b> 抜ける</span>
       </div>
     </div>
@@ -115,7 +146,9 @@
   <div id="result" class="overlay hidden">
     <div class="paper">
       <div id="result-title" class="brush-title">勝</div>
+      <div id="result-sub" class="subtitle">立 ち 合 い 終 了</div>
       <div id="result-score" class="score-final">3 - 0</div>
+      <div id="result-stats" class="result-stats"></div>
       <div class="row-buttons">
         <button class="ink-btn primary" id="result-rematch">もう 一 度</button>
         <button class="ink-btn" id="result-menu">入口へ</button>
@@ -125,6 +158,11 @@
 
   <!-- 3Dキャンバス -->
   <canvas id="game-canvas"></canvas>
+
+  <!-- 中央照準 -->
+  <div id="crosshair"></div>
+  <div id="hit-flash"></div>
+  <div id="kill-vignette"></div>
 
   <!-- Three.js (CDN, importmap) -->
   <script type="importmap">
