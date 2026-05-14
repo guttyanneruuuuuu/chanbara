@@ -2207,7 +2207,6 @@ function exitToMenu() {
   STATE.bestCombo = 0;
   STATE.feverUntil = 0;
   STATE.feverStartCombo = 0;
-  STATE.feverStartCombo = 0;
   document.getElementById('hud').classList.add('hidden');
   document.getElementById('result').classList.add('hidden');
   document.getElementById('menu').classList.remove('hidden');
