@@ -794,6 +794,9 @@ class Fighter {
     this.specialUntil = 0;
     this.items = {};
     this.itemKey = 0;
+    this.handedness = 'right';
+    this.handSign = 1;
+    this.setHandedness(this.handedness);
   }
 
   setStance(facing) {
@@ -801,9 +804,34 @@ class Fighter {
     this.mesh.rotation.y = facing;
   }
 
+  getWeaponArmSide() {
+    return this.handSign > 0 ? 'rArm' : 'lArm';
+  }
+
+  setHandedness(hand='right') {
+    const next = hand === 'left' ? 'left' : 'right';
+    if (this.handedness === next) return;
+    this.handedness = next;
+    this.handSign = next === 'right' ? 1 : -1;
+
+    const p = this.mesh.userData.parts;
+    if (!p?.swordPivot || !p?.lElbow || !p?.rElbow) return;
+
+    p.swordPivot.removeFromParent();
+    const elbow = this.handSign > 0 ? p.rElbow : p.lElbow;
+    elbow.add(p.swordPivot);
+    p.swordPivot.position.set(0, -0.32, 0);
+
+    if (p.saya) {
+      p.saya.position.x = -0.32 * this.handSign;
+      p.saya.rotation.z = 0.2 * this.handSign;
+    }
+  }
+
   attack(type='light') {
     if (this.state === 'attack' || this.state === 'heavy' || this.state === 'hit' || this.state === 'dodge' || this.state === 'dead') return false;
     if (this.cooldown > 0) return false;
+    if (this.mesh.userData?.severed?.[this.getWeaponArmSide()]) return false;
     const cost = type === 'heavy' ? this.swordDef.stamCost * 1.7 : this.swordDef.stamCost;
     if (this.stamina < cost) return false;
     this.stamina -= cost;
@@ -883,10 +911,11 @@ class Fighter {
     const p = this.mesh.userData.parts;
     const lerp = (a,b,t)=>a + (b-a)*t;
 
-    let tRShoulderX = -0.2, tRShoulderZ = -0.15;
-    let tLShoulderX = 0.10, tLShoulderZ = 0.15;
-    let tRElbowX = -1.0, tLElbowX = -0.6;
-    let tSwordX = -0.4, tSwordZ = -0.2, tSwordY = 0;
+    const hand = this.handSign;
+    let tWeaponShoulderX = -0.2, tWeaponShoulderZ = -0.15 * hand;
+    let tOffShoulderX = 0.10, tOffShoulderZ = 0.15 * hand;
+    let tWeaponElbowX = -1.0, tOffElbowX = -0.6;
+    let tSwordX = -0.4, tSwordZ = -0.2 * hand, tSwordY = 0;
     let tTorsoY = 0, tTorsoX = 0;
 
     const moving = (Math.abs(this.velocity.x) + Math.abs(this.velocity.z)) > 0.5;
@@ -896,8 +925,8 @@ class Fighter {
       p.rHip.rotation.x = -Math.sin(w)*0.5;
       p.lKnee.rotation.x = Math.max(0, Math.sin(w)*0.4);
       p.rKnee.rotation.x = Math.max(0, -Math.sin(w)*0.4);
-      tLShoulderX += Math.sin(w+Math.PI)*0.2;
-      tRShoulderX += Math.sin(w)*0.05;
+      tOffShoulderX += Math.sin(w+Math.PI)*0.2;
+      tWeaponShoulderX += Math.sin(w)*0.05;
     } else {
       p.lHip.rotation.x = lerp(p.lHip.rotation.x, 0, 0.2);
       p.rHip.rotation.x = lerp(p.rHip.rotation.x, 0, 0.2);
@@ -910,14 +939,14 @@ class Fighter {
       this.attackPhase = Math.min(1, this.stateTime / dur);
       if (this.attackPhase < 0.30) {
         const t = this.attackPhase/0.30;
-        tRShoulderX = lerp(-0.2, -2.4, t);
-        tRElbowX   = lerp(-1.0, -2.0, t);
+        tWeaponShoulderX = lerp(-0.2, -2.4, t);
+        tWeaponElbowX   = lerp(-1.0, -2.0, t);
         tSwordX    = lerp(-0.4, -1.6, t);
         tTorsoY    = lerp(0, -0.3, t);
       } else if (this.attackPhase < 0.6) {
         const t = (this.attackPhase-0.30)/0.30;
-        tRShoulderX = lerp(-2.4, 1.5, t);
-        tRElbowX   = lerp(-2.0, -0.2, t);
+        tWeaponShoulderX = lerp(-2.4, 1.5, t);
+        tWeaponElbowX   = lerp(-2.0, -0.2, t);
         tSwordX    = lerp(-1.6, 0.7, t);
         tTorsoY    = lerp(-0.3, 0.25, t);
         if (!this.attackHitFrame && t > 0.25) {
@@ -926,8 +955,8 @@ class Fighter {
         }
       } else {
         const t = (this.attackPhase-0.6)/0.4;
-        tRShoulderX = lerp(1.5, -0.2, t);
-        tRElbowX   = lerp(-0.2, -1.0, t);
+        tWeaponShoulderX = lerp(1.5, -0.2, t);
+        tWeaponElbowX   = lerp(-0.2, -1.0, t);
         tSwordX    = lerp(0.7, -0.4, t);
         tTorsoY    = lerp(0.25, 0, t);
       }
@@ -938,14 +967,14 @@ class Fighter {
       const isSpecial = performance.now() < this.specialUntil;
       if (this.attackPhase < 0.40) {
         const t = this.attackPhase/0.40;
-        tRShoulderX = lerp(-0.2, -2.8, t);
-        tRElbowX   = lerp(-1.0, -2.4, t);
+        tWeaponShoulderX = lerp(-0.2, -2.8, t);
+        tWeaponElbowX   = lerp(-1.0, -2.4, t);
         tSwordX    = lerp(-0.4, -1.9, t);
         tTorsoY    = lerp(0, -0.5, t);
       } else if (this.attackPhase < 0.68) {
         const t = (this.attackPhase-0.40)/0.28;
-        tRShoulderX = lerp(-2.8, 1.8, t);
-        tRElbowX   = lerp(-2.4, 0.0, t);
+        tWeaponShoulderX = lerp(-2.8, 1.8, t);
+        tWeaponElbowX   = lerp(-2.4, 0.0, t);
         tSwordX    = lerp(-1.9, 1.0, t);
         tTorsoY    = lerp(-0.5, 0.35, t);
         if (!this.attackHitFrame && t > 0.3) {
@@ -956,17 +985,17 @@ class Fighter {
         }
       } else {
         const t = (this.attackPhase-0.68)/0.32;
-        tRShoulderX = lerp(1.8, -0.2, t);
-        tRElbowX   = lerp(0.0, -1.0, t);
+        tWeaponShoulderX = lerp(1.8, -0.2, t);
+        tWeaponElbowX   = lerp(0.0, -1.0, t);
         tSwordX    = lerp(1.0, -0.4, t);
         tTorsoY    = lerp(0.35, 0, t);
       }
       if (this.attackPhase >= 1) { this.state = 'idle'; this.cooldown = 0.28; }
     } else if (this.state === 'guard') {
-      tRShoulderX = -1.4; tRShoulderZ = -0.6;
-      tLShoulderX = -1.3; tLShoulderZ = 0.7;
-      tRElbowX = -0.4; tLElbowX = -1.2;
-      tSwordX = 1.2; tSwordZ = 0.5;
+      tWeaponShoulderX = -1.4; tWeaponShoulderZ = -0.6 * hand;
+      tOffShoulderX = -1.3; tOffShoulderZ = 0.7 * hand;
+      tWeaponElbowX = -0.4; tOffElbowX = -1.2;
+      tSwordX = 1.2; tSwordZ = 0.5 * hand;
     } else if (this.state === 'dodge') {
       const dur = 0.32;
       const t = Math.min(1, this.stateTime/dur);
@@ -978,7 +1007,7 @@ class Fighter {
     } else if (this.state === 'hit') {
       const t = Math.min(1, this.stateTime/0.25);
       tTorsoY = Math.sin(t*Math.PI)*-0.4;
-      tRShoulderX = lerp(-0.2, 0.7, Math.sin(t*Math.PI));
+      tWeaponShoulderX = lerp(-0.2, 0.7, Math.sin(t*Math.PI));
       if (t >= 1) { this.state = 'idle'; this.cooldown = 0.08; }
     } else if (this.state === 'dead') {
       const t = Math.min(1, this.stateTime/0.8);
@@ -987,21 +1016,26 @@ class Fighter {
     } else {
       // idle - スワイプ反映
       if (this.isPlayer) {
-        tRShoulderX = -0.2 + this.swingPitch * 1.6;
-        tRShoulderZ = -0.15 + this.swingYaw * 0.8;
-        tRElbowX = -1.0 + this.swingPitch * 0.5;
+        tWeaponShoulderX = -0.2 + this.swingPitch * 1.6;
+        tWeaponShoulderZ = (-0.15 + this.swingYaw * 0.8) * hand;
+        tWeaponElbowX = -1.0 + this.swingPitch * 0.5;
         tSwordX = -0.4 + this.swingPitch * 0.8;
-        tSwordZ = -0.2 + this.swingYaw * 0.7;
+        tSwordZ = (-0.2 + this.swingYaw * 0.7) * hand;
         tSwordY = this.swingRoll * 1.4;
       }
     }
 
-    p.rShoulder.rotation.x = lerp(p.rShoulder.rotation.x, tRShoulderX, 0.5);
-    p.rShoulder.rotation.z = lerp(p.rShoulder.rotation.z, tRShoulderZ, 0.5);
-    p.lShoulder.rotation.x = lerp(p.lShoulder.rotation.x, tLShoulderX, 0.4);
-    p.lShoulder.rotation.z = lerp(p.lShoulder.rotation.z, tLShoulderZ, 0.4);
-    p.rElbow.rotation.x = lerp(p.rElbow.rotation.x, tRElbowX, 0.5);
-    p.lElbow.rotation.x = lerp(p.lElbow.rotation.x, tLElbowX, 0.4);
+    const weaponShoulder = hand > 0 ? p.rShoulder : p.lShoulder;
+    const offShoulder = hand > 0 ? p.lShoulder : p.rShoulder;
+    const weaponElbow = hand > 0 ? p.rElbow : p.lElbow;
+    const offElbow = hand > 0 ? p.lElbow : p.rElbow;
+
+    weaponShoulder.rotation.x = lerp(weaponShoulder.rotation.x, tWeaponShoulderX, 0.5);
+    weaponShoulder.rotation.z = lerp(weaponShoulder.rotation.z, tWeaponShoulderZ, 0.5);
+    offShoulder.rotation.x = lerp(offShoulder.rotation.x, tOffShoulderX, 0.4);
+    offShoulder.rotation.z = lerp(offShoulder.rotation.z, tOffShoulderZ, 0.4);
+    weaponElbow.rotation.x = lerp(weaponElbow.rotation.x, tWeaponElbowX, 0.5);
+    offElbow.rotation.x = lerp(offElbow.rotation.x, tOffElbowX, 0.4);
     p.swordPivot.rotation.x = lerp(p.swordPivot.rotation.x, tSwordX, 0.55);
     p.swordPivot.rotation.z = lerp(p.swordPivot.rotation.z, tSwordZ, 0.55);
     p.swordPivot.rotation.y = lerp(p.swordPivot.rotation.y, tSwordY, 0.55);
@@ -1052,6 +1086,8 @@ function spawnFighters(playerSwordId, enemySwordId) {
   const eDef = SWORDS.find(s => s.id === enemySwordId) || SWORDS[0];
   player = new Fighter({ swordDef: pDef, color: 0x294b6d, isPlayer: true, name: STATE.playerName });
   enemy  = new Fighter({ swordDef: eDef, color: 0x6d2929, isPlayer: false, name: STATE.enemyName });
+  player.setHandedness('right');
+  enemy.setHandedness('left');
   player.mesh.position.set(0, 0, 4);
   enemy.mesh.position.set(0, 0, -4);
   player.setStance(Math.PI); // 自分は北を向く(画面奥)
@@ -1771,6 +1807,18 @@ function setupActionButtons() {
   btnItem?.addEventListener('touchstart', e => { doItem(); e.preventDefault(); }, { passive: false });
   btnItem?.addEventListener('click', doItem);
 
+  const btnStance = document.getElementById('btn-stance');
+  function toggleStance() {
+    ensureAudio();
+    if (!player) return;
+    const next = player.handedness === 'right' ? 'left' : 'right';
+    player.setHandedness(next);
+    showCenterMsg(next === 'right' ? '右構え' : '左構え', 350);
+    sendNet({ t: 'act', a: 'stance', hand: next });
+  }
+  btnStance?.addEventListener('touchstart', e => { toggleStance(); e.preventDefault(); }, { passive: false });
+  btnStance?.addEventListener('click', toggleStance);
+
   const btnMenu = document.getElementById('btn-menu');
   btnMenu?.addEventListener('click', () => exitToMenu());
 }
@@ -1811,6 +1859,13 @@ window.addEventListener('keydown', (e) => {
     if (player) useCurrentItem(player);
   } else if (e.code === 'KeyF') {
     if (player) player.guard(!player.guardActive);
+  } else if (e.code === 'KeyR') {
+    if (player) {
+      const next = player.handedness === 'right' ? 'left' : 'right';
+      player.setHandedness(next);
+      showCenterMsg(next === 'right' ? '右構え' : '左構え', 350);
+      sendNet({ t: 'act', a: 'stance', hand: next });
+    }
   }
 });
 
@@ -2177,23 +2232,18 @@ function loop() {
         player.mesh.position.x += dir.x * speed * mag * dt;
         player.mesh.position.z += dir.z * speed * mag * dt;
         player.velocity.set(dir.x*speed*mag, 0, dir.z*speed*mag);
-        // プレイヤーを敵の方に向ける (自動)
-        const towardEnemyYaw = Math.atan2(
-          enemy.mesh.position.x - player.mesh.position.x,
-          enemy.mesh.position.z - player.mesh.position.z
-        );
-        player.setStance(towardEnemyYaw);
-        // カメラも敵の方向 (背中越し)
-        camState.yaw = towardEnemyYaw;
       } else {
         player.velocity.set(0,0,0);
-        const towardEnemyYaw = Math.atan2(
-          enemy.mesh.position.x - player.mesh.position.x,
-          enemy.mesh.position.z - player.mesh.position.z
-        );
-        player.setStance(towardEnemyYaw);
-        camState.yaw = towardEnemyYaw;
       }
+    }
+    // 状態に関わらず常に相手方向へ向き、カメラを背中側へ追従させる
+    if (player.state !== 'dead' && enemy.state !== 'dead') {
+      const towardEnemyYaw = Math.atan2(
+        enemy.mesh.position.x - player.mesh.position.x,
+        enemy.mesh.position.z - player.mesh.position.z
+      );
+      player.setStance(towardEnemyYaw);
+      camState.yaw = towardEnemyYaw;
     }
     // リング内クランプ
     const px = player.mesh.position.x, pz = player.mesh.position.z;
@@ -2547,8 +2597,10 @@ function onNetData(data) {
       enemy.mesh.position.z = data.host.z;
       enemy.facing = data.host.f;
       enemy.mesh.rotation.y = data.host.f;
+      if (data.host.hand) enemy.setHandedness(data.host.hand);
       enemy.hp = data.host.hp;
       player.hp = data.guest.hp;
+      if (data.guest.hand) player.setHandedness(data.guest.hand);
       enemy.stamina = data.host.stamina ?? enemy.stamina;
       enemy.ki = data.host.ki ?? enemy.ki;
       player.stamina = data.guest.stamina ?? player.stamina;
@@ -2566,6 +2618,7 @@ function onNetData(data) {
       else if (data.a === 'guard') { enemy.guard(!!data.v); }
       else if (data.a === 'dodge') { enemy.dodge(new THREE.Vector3(data.dx,0,data.dz)); }
       else if (data.a === 'special') { enemy.special(); addSlashTrail(enemy, true); }
+      else if (data.a === 'stance') { enemy.setHandedness(data.hand); }
     }
   } else if (data.t === 'item') {
     const other = STATE.isHost ? enemy : player;
@@ -2591,8 +2644,8 @@ setInterval(() => {
   if (STATE.conn && STATE.isHost && STATE.inGame && player && enemy) {
     sendNet({
       t: 'state',
-      host: { x: player.mesh.position.x, z: player.mesh.position.z, f: player.facing, hp: player.hp, state: player.state, guard: player.guardActive, stamina: player.stamina, ki: player.ki },
-      guest:{ x: enemy.mesh.position.x, z: enemy.mesh.position.z, f: enemy.facing, hp: enemy.hp, state: enemy.state, guard: enemy.guardActive, stamina: enemy.stamina, ki: enemy.ki }
+      host: { x: player.mesh.position.x, z: player.mesh.position.z, f: player.facing, hp: player.hp, state: player.state, guard: player.guardActive, stamina: player.stamina, ki: player.ki, hand: player.handedness },
+      guest:{ x: enemy.mesh.position.x, z: enemy.mesh.position.z, f: enemy.facing, hp: enemy.hp, state: enemy.state, guard: enemy.guardActive, stamina: enemy.stamina, ki: enemy.ki, hand: enemy.handedness }
     });
   }
 }, 50);
