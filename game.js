@@ -1128,9 +1128,20 @@ function tryHit(attacker, damage, opts={}) {
       if (target === player) {
         flashScreen();
         bigVibrate();
+        camState.shake = 0.55;
       } else {
-        // 攻撃側プレイヤーへの振動 (敵に当てた時)
-        if (attacker === player) hitVibrate(result === 'crit' || opts.heavy ? 60 : 30);
+        // 攻撃側プレイヤー → 敵にヒット時の "爽快感" 演出
+        if (attacker === player) {
+          // ヒットストップ (ragdoll blade風: 一瞬時間が止まる)
+          const stopMs = result === 'crit' ? 130 : (opts.heavy ? 110 : 75);
+          camState.hitStop = Math.max(camState.hitStop, stopMs / 1000);
+          // カメラシェイク (威力に比例)
+          camState.shake = Math.max(camState.shake, result === 'crit' || opts.heavy ? 0.50 : 0.32);
+          // 振動: スマホに来る "切った手応え" を波形で
+          slashVibrate(result === 'crit' || opts.heavy ? 'strong' : 'light');
+          // 小さく画面フラッシュ (会心時のみ)
+          if (result === 'crit') flashScreen();
+        }
       }
       playSound('hit', result === 'crit' ? 1.5 : 1.0);
     } else if (result === 'guard') {
@@ -1152,13 +1163,26 @@ function tryHit(attacker, damage, opts={}) {
 }
 
 // =================================================================
-//  Vibration
+//  Vibration (Ragdoll Blade風: 切れた瞬間にスマホがビリッ)
 // =================================================================
 function hitVibrate(ms=30) {
   try { navigator.vibrate?.(ms); } catch(e){}
 }
 function bigVibrate() {
-  try { navigator.vibrate?.([20, 30, 60, 30, 100]); } catch(e){}
+  // 致命傷・必殺など
+  try { navigator.vibrate?.([25, 25, 60, 25, 90, 30, 50]); } catch(e){}
+}
+// 斬撃ヒット時の振動 (ragdoll blade的な "切った感触" を再現するパターン)
+function slashVibrate(kind='light') {
+  try {
+    if (kind === 'strong') {
+      // 当たった瞬間 → 短い余韻 → 強いキック の二段構え
+      navigator.vibrate?.([18, 18, 70]);
+    } else {
+      // 軽い斬り: 鋭く短く
+      navigator.vibrate?.([28]);
+    }
+  } catch(e){}
 }
 
 // =================================================================
@@ -1421,15 +1445,16 @@ function playSound(type, gain=1.0) {
 }
 
 // =================================================================
-//  Camera (Third-person, behind player's back)
+//  Camera (Third-person, behind player's back) - Ragdoll Blade風に少し引いて全体を見せる
 // =================================================================
 const camState = {
   yaw: 0,            // プレイヤーの向き（背面方向）
-  pitch: 0.20,
-  distance: 6.5,
-  height: 2.1,
-  lookHeight: 1.45,
+  pitch: 0.36,       // 少し上から見下ろす (3/4視点に寄せる)
+  distance: 9.5,     // 引いてキャラを小さく見せる
+  height: 3.4,
+  lookHeight: 1.25,
   shake: 0,
+  hitStop: 0,        // ヒットストップ用 (タイムスケールに乗る)
 };
 function updateCamera() {
   if (!player) return;
@@ -1444,9 +1469,11 @@ function updateCamera() {
   const camY = camState.height + Math.sin(pitch)*dist*0.5;
   let sx=0, sy=0;
   if (camState.shake > 0) {
-    sx = (Math.random()-0.5)*camState.shake;
-    sy = (Math.random()-0.5)*camState.shake;
-    camState.shake = Math.max(0, camState.shake - 0.06);
+    // ragdoll blade的に揺れを少し大きめにし、減衰を緩く (爽快感重視)
+    const amp = camState.shake;
+    sx = (Math.random()-0.5)*amp*1.3;
+    sy = (Math.random()-0.5)*amp*1.3;
+    camState.shake = Math.max(0, camState.shake - 0.045);
   }
   camera.position.set(camX+sx, camY+sy, camZ);
   // プレイヤーより少し前方を見る（敵の方向）
@@ -1456,224 +1483,241 @@ function updateCamera() {
 }
 
 // =================================================================
-//  Mobile Input - Virtual Stick + Swipe Sword
+//  Mobile Input - One-Finger Unified Control (Ragdoll Blade style)
+//  ── 1本指で「移動」と「刀振り」を兼ねる。指の速度で挙動が変わる。
+//     ゆっくり    → キャラ移動 (指の方向へ歩く)
+//     素早く払う  → 刀の一閃 (斬撃発動)
+//     継続的にぐるぐる → 刀をぐるぐる回す (溜め)
 // =================================================================
-const stickState = {
+const touchState = {
   active: false,
   id: -1,
-  startX: 0, startY: 0,
-  dx: 0, dy: 0,
-  mag: 0,
-};
-const swipeState = {
-  active: false,
-  id: -1,
-  lastX: 0, lastY: 0,
-  vx: 0, vy: 0,
-  vMag: 0,
+  startX: 0, startY: 0,   // 指の最初の位置 (相対移動の原点)
+  curX: 0,   curY: 0,     // 現在の指の位置
+  lastX: 0,  lastY: 0,    // 前フレームの位置
+  vx: 0,     vy: 0,       // 瞬間速度 (px/frame)
+  vMag: 0,                // 平滑化した速度
+  vMagPeak: 0,            // 直近のピーク速度
+  lastMoveTime: 0,
   lastSwingTime: 0,
+  lastAng: undefined,
   totalMove: 0,
+  // 移動方向 (画面座標 -1..1)
+  moveDx: 0, moveDy: 0,
+  moveMag: 0,
 };
+// stickState はレガシー互換用 (使われなくなったが他コードからの参照を残すため)
+const stickState = { active:false, dx:0, dy:0, mag:0 };
+const swipeState = { active:false, vMag:0, lastSwingTime:0, lastAng:undefined };
 
-function setupStick() {
-  const base = document.getElementById('stick-base');
-  const knob = document.getElementById('stick-knob');
-  const zone = document.getElementById('stick-zone');
-  if (!base || !zone) return;
-  const rect = () => base.getBoundingClientRect();
-  function onStart(e) {
-    ensureAudio();
-    const t = e.changedTouches ? e.changedTouches[0] : e;
-    stickState.active = true;
-    stickState.id = e.changedTouches ? t.identifier : -2;
-    const r = rect();
-    stickState.startX = r.left + r.width/2;
-    stickState.startY = r.top + r.height/2;
-    onMove(e);
-    e.preventDefault();
-  }
-  function onMove(e) {
-    if (!stickState.active) return;
-    let touch = null;
-    if (e.changedTouches) {
-      for (const ct of e.changedTouches) {
-        if (ct.identifier === stickState.id) { touch = ct; break; }
-      }
-      if (!touch) return;
-    } else {
-      touch = e;
-    }
-    const dx = touch.clientX - stickState.startX;
-    const dy = touch.clientY - stickState.startY;
-    const maxR = 50;
-    const mag = Math.hypot(dx, dy);
-    const cap = Math.min(mag, maxR);
-    const nx = mag > 0 ? dx/mag : 0;
-    const ny = mag > 0 ? dy/mag : 0;
-    stickState.dx = nx * (cap/maxR);
-    stickState.dy = ny * (cap/maxR);
-    stickState.mag = cap/maxR;
-    knob.style.transform = `translate(calc(-50% + ${nx*cap}px), calc(-50% + ${ny*cap}px))`;
-    e.preventDefault();
-  }
-  function onEnd(e) {
-    if (!stickState.active) return;
-    if (e.changedTouches) {
-      let found = false;
-      for (const ct of e.changedTouches) if (ct.identifier === stickState.id) found = true;
-      if (!found) return;
-    }
-    stickState.active = false;
-    stickState.dx = 0; stickState.dy = 0; stickState.mag = 0;
-    knob.style.transform = `translate(-50%, -50%)`;
-  }
-  zone.addEventListener('touchstart', onStart, { passive: false });
-  zone.addEventListener('touchmove', onMove, { passive: false });
-  zone.addEventListener('touchend', onEnd, { passive: false });
-  zone.addEventListener('touchcancel', onEnd, { passive: false });
-  // マウスでもデバッグ
-  zone.addEventListener('mousedown', onStart);
-  window.addEventListener('mousemove', e => { if (stickState.active && stickState.id === -2) onMove(e); });
-  window.addEventListener('mouseup', e => { if (stickState.active && stickState.id === -2) { stickState.active=false; stickState.dx=0; stickState.dy=0; stickState.mag=0; knob.style.transform='translate(-50%,-50%)'; } });
-}
-
-// スワイプ刀振り (画面の上半分・右側、スティックとボタン以外)
-function setupSwipeSword() {
+// ─── Ragdoll Blade風: 1本指で「移動 + 刀振り」を兼ねる ─────────
+// 指を画面に置く → 起点を記録
+// 指をゆっくり動かす → キャラがその方向に歩く (起点からのオフセット = 移動方向)
+// 指を素早く払う (高速度)   → 刀の一閃 (斬撃発動)
+// 振った後も指を離さなければ続けて動かせる (連続戦闘)
+// ボタン(必殺/避/受/薬) の上から始めたタッチは無視 (ボタン優先)
+function setupUnifiedTouch() {
   function isOnUI(x, y) {
     const el = document.elementFromPoint(x, y);
     if (!el) return false;
-    if (el.closest('.stick-zone')) return true;
     if (el.closest('.action-zone')) return true;
     if (el.closest('.item-bar')) return true;
     if (el.closest('.hud-top')) return true;
     return false;
   }
 
-  canvas.addEventListener('touchstart', (e) => {
+  function startTouch(clientX, clientY, id) {
     ensureAudio();
+    if (!STATE.inGame) return false;
+    if (isOnUI(clientX, clientY)) return false;
+    touchState.active = true;
+    touchState.id = id;
+    touchState.startX = clientX;
+    touchState.startY = clientY;
+    touchState.curX = clientX;
+    touchState.curY = clientY;
+    touchState.lastX = clientX;
+    touchState.lastY = clientY;
+    touchState.vx = 0; touchState.vy = 0;
+    touchState.vMag = 0;
+    touchState.vMagPeak = 0;
+    touchState.totalMove = 0;
+    touchState.lastAng = undefined;
+    touchState.lastMoveTime = performance.now();
+    touchState.moveDx = 0; touchState.moveDy = 0; touchState.moveMag = 0;
+    showFingerIndicator(clientX, clientY, 'idle');
+    hideControlHint();
+    // 旧API互換
+    swipeState.active = true;
+    return true;
+  }
+
+  function moveTouch(clientX, clientY) {
+    if (!touchState.active) return;
+    const now = performance.now();
+    const dt = Math.max(1, now - touchState.lastMoveTime); // ms
+    const dx = clientX - touchState.lastX;
+    const dy = clientY - touchState.lastY;
+    touchState.lastX = touchState.curX = clientX;
+    touchState.lastY = touchState.curY = clientY;
+    touchState.lastMoveTime = now;
+    touchState.vx = dx;
+    touchState.vy = dy;
+    const mag = Math.hypot(dx, dy);
+    // 指速度の指数移動平均 (反応速度と滑らかさの両立)
+    touchState.vMag = touchState.vMag * 0.55 + mag * 0.45;
+    touchState.vMagPeak = Math.max(touchState.vMagPeak * 0.92, touchState.vMag);
+    touchState.totalMove += mag;
+    swipeState.vMag = touchState.vMag; // 互換
+
+    // 移動ベクトル: 起点からの相対 (デッドゾーン付き)
+    const ox = clientX - touchState.startX;
+    const oy = clientY - touchState.startY;
+    const omag = Math.hypot(ox, oy);
+    const maxR = Math.min(140, Math.min(window.innerWidth, window.innerHeight) * 0.22);
+    const dead = 14;
+    if (omag > dead) {
+      const eff = Math.min(omag - dead, maxR) / maxR;
+      touchState.moveDx = (ox / omag) * eff;
+      touchState.moveDy = (oy / omag) * eff;
+      touchState.moveMag = eff;
+    } else {
+      touchState.moveDx = 0; touchState.moveDy = 0; touchState.moveMag = 0;
+    }
+    // 互換用 (AI/ネット側で利用)
+    stickState.dx = touchState.moveDx;
+    stickState.dy = touchState.moveDy;
+    stickState.mag = touchState.moveMag;
+
+    // 刀の腕姿勢を指の動きに連動させる (Ragdoll Blade風の "腕が指に引っ張られる" 感じ)
+    if (player && (player.state === 'idle' || player.state === 'guard')) {
+      // 指の即時速度を腕の姿勢に直接反映
+      const yawInfluence = dx * 0.018;
+      const pitchInfluence = dy * 0.018;
+      player.swingYaw   = Math.max(-1.5, Math.min(1.5, player.swingYaw   + yawInfluence));
+      player.swingPitch = Math.max(-1.3, Math.min(1.3, player.swingPitch + pitchInfluence));
+      // ぐるぐる検出: 角度の連続変化で roll を貯める
+      const ang = Math.atan2(dy, dx);
+      if (touchState.lastAng !== undefined) {
+        let da = ang - touchState.lastAng;
+        while (da > Math.PI)  da -= Math.PI*2;
+        while (da < -Math.PI) da += Math.PI*2;
+        player.swingRoll = Math.max(-2.2, Math.min(2.2, player.swingRoll + da * 0.9));
+      }
+      touchState.lastAng = ang;
+
+      // 速度が一定以上 → 斬撃発動 (フリック判定)
+      const SWING_THRESHOLD = 16;   // 軽斬り
+      const HEAVY_THRESHOLD = 44;   // 強斬り
+      if (touchState.vMag > SWING_THRESHOLD && (now - touchState.lastSwingTime) > 230) {
+        touchState.lastSwingTime = now;
+        swipeState.lastSwingTime = now;
+        const heavy = touchState.vMag > HEAVY_THRESHOLD;
+        if (player.attack(heavy ? 'heavy' : 'light')) {
+          addSlashTrail(player, heavy);
+          playSound('swing', heavy ? 1.4 : 1.0);
+          sendNet({ t: 'act', a: heavy ? 'heavy' : 'light' });
+          // 振りインジケータを光らせる
+          showFingerIndicator(clientX, clientY, 'swing');
+        }
+      } else {
+        // 速度に応じて移動 or 待機の見た目を切替
+        showFingerIndicator(clientX, clientY, touchState.moveMag > 0.05 ? 'walk' : 'idle');
+      }
+    } else {
+      showFingerIndicator(clientX, clientY, 'idle');
+    }
+  }
+
+  function endTouch() {
+    touchState.active = false;
+    touchState.id = -1;
+    touchState.vMag = 0;
+    touchState.vMagPeak = 0;
+    touchState.moveDx = 0; touchState.moveDy = 0; touchState.moveMag = 0;
+    touchState.lastAng = undefined;
+    stickState.dx = 0; stickState.dy = 0; stickState.mag = 0;
+    swipeState.active = false;
+    swipeState.vMag = 0;
+    hideFingerIndicator();
+  }
+
+  // タッチイベント
+  canvas.addEventListener('touchstart', (e) => {
     if (!STATE.inGame) return;
     for (const t of e.changedTouches) {
-      if (isOnUI(t.clientX, t.clientY)) continue;
-      if (swipeState.active) continue;
-      swipeState.active = true;
-      swipeState.id = t.identifier;
-      swipeState.lastX = t.clientX;
-      swipeState.lastY = t.clientY;
-      swipeState.vx = 0; swipeState.vy = 0;
-      swipeState.vMag = 0;
-      swipeState.totalMove = 0;
-      e.preventDefault();
-      break;
+      if (touchState.active) break;
+      if (startTouch(t.clientX, t.clientY, t.identifier)) { e.preventDefault(); break; }
     }
   }, { passive: false });
 
   canvas.addEventListener('touchmove', (e) => {
-    if (!STATE.inGame || !swipeState.active) return;
+    if (!touchState.active) return;
     for (const t of e.changedTouches) {
-      if (t.identifier !== swipeState.id) continue;
-      const dx = t.clientX - swipeState.lastX;
-      const dy = t.clientY - swipeState.lastY;
-      swipeState.lastX = t.clientX;
-      swipeState.lastY = t.clientY;
-      swipeState.vx = dx;
-      swipeState.vy = dy;
-      const mag = Math.hypot(dx, dy);
-      swipeState.vMag = swipeState.vMag*0.5 + mag*0.5;
-      swipeState.totalMove += mag;
-      // 刀を直接動かす (スワイプの方向に同じ向きで)
-      if (player && player.state === 'idle') {
-        // 画面のX→刀のyaw, Y→pitch, ぐるぐる時はroll効果
-        player.swingYaw   = Math.max(-1.4, Math.min(1.4, player.swingYaw + dx * 0.012));
-        player.swingPitch = Math.max(-1.2, Math.min(1.2, player.swingPitch + dy * 0.012));
-        // ぐるぐる検出: 角度の変化
-        const ang = Math.atan2(dy, dx);
-        if (swipeState.lastAng !== undefined) {
-          let da = ang - swipeState.lastAng;
-          while (da > Math.PI) da -= Math.PI*2;
-          while (da < -Math.PI) da += Math.PI*2;
-          player.swingRoll = Math.max(-2, Math.min(2, player.swingRoll + da*0.8));
-        }
-        swipeState.lastAng = ang;
-        // 一定以上の勢いで斬撃発動
-        if (swipeState.vMag > 18 && performance.now() - swipeState.lastSwingTime > 250) {
-          swipeState.lastSwingTime = performance.now();
-          const heavy = swipeState.vMag > 50;
-          if (player.attack(heavy?'heavy':'light')) {
-            addSlashTrail(player, heavy);
-            playSound('swing', heavy?1.4:1.0);
-            sendNet({ t: 'act', a: heavy?'heavy':'light' });
-          }
-        }
-      }
+      if (t.identifier !== touchState.id) continue;
+      moveTouch(t.clientX, t.clientY);
       e.preventDefault();
       break;
     }
   }, { passive: false });
 
-  function endTouch(e) {
-    if (!swipeState.active) return;
+  function onTouchEnd(e) {
+    if (!touchState.active) return;
     for (const t of e.changedTouches) {
-      if (t.identifier !== swipeState.id) continue;
-      swipeState.active = false;
-      swipeState.id = -1;
-      swipeState.vx = 0; swipeState.vy = 0; swipeState.vMag = 0;
-      swipeState.lastAng = undefined;
+      if (t.identifier !== touchState.id) continue;
+      endTouch();
+      e.preventDefault();
       break;
     }
   }
-  canvas.addEventListener('touchend', endTouch, { passive: false });
-  canvas.addEventListener('touchcancel', endTouch, { passive: false });
+  canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+  canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
 
-  // マウスでもデバッグできるように
-  let mouseDown = false;
+  // マウス (デバッグ・PC)
   canvas.addEventListener('mousedown', (e) => {
-    ensureAudio();
-    if (!STATE.inGame) return;
-    if (isOnUI(e.clientX, e.clientY)) return;
-    mouseDown = true;
-    swipeState.active = true;
-    swipeState.id = -3;
-    swipeState.lastX = e.clientX;
-    swipeState.lastY = e.clientY;
-    swipeState.vx = 0; swipeState.vy = 0;
+    if (e.button !== 0) return;
+    startTouch(e.clientX, e.clientY, -3);
   });
   window.addEventListener('mousemove', (e) => {
-    if (!mouseDown || !STATE.inGame) return;
-    const dx = e.clientX - swipeState.lastX;
-    const dy = e.clientY - swipeState.lastY;
-    swipeState.lastX = e.clientX;
-    swipeState.lastY = e.clientY;
-    swipeState.vMag = swipeState.vMag*0.5 + Math.hypot(dx,dy)*0.5;
-    if (player && player.state === 'idle') {
-      player.swingYaw   = Math.max(-1.4, Math.min(1.4, player.swingYaw + dx * 0.012));
-      player.swingPitch = Math.max(-1.2, Math.min(1.2, player.swingPitch + dy * 0.012));
-      const ang = Math.atan2(dy, dx);
-      if (swipeState.lastAng !== undefined) {
-        let da = ang - swipeState.lastAng;
-        while (da > Math.PI) da -= Math.PI*2;
-        while (da < -Math.PI) da += Math.PI*2;
-        player.swingRoll = Math.max(-2, Math.min(2, player.swingRoll + da*0.8));
-      }
-      swipeState.lastAng = ang;
-      if (swipeState.vMag > 18 && performance.now() - swipeState.lastSwingTime > 250) {
-        swipeState.lastSwingTime = performance.now();
-        const heavy = swipeState.vMag > 50;
-        if (player.attack(heavy?'heavy':'light')) {
-          addSlashTrail(player, heavy);
-          playSound('swing', heavy?1.4:1.0);
-          sendNet({ t: 'act', a: heavy?'heavy':'light' });
-        }
-      }
-    }
+    if (!touchState.active || touchState.id !== -3) return;
+    moveTouch(e.clientX, e.clientY);
   });
-  window.addEventListener('mouseup', () => {
-    if (mouseDown) {
-      mouseDown = false;
-      swipeState.active = false;
-      swipeState.lastAng = undefined;
-    }
+  window.addEventListener('mouseup', (e) => {
+    if (touchState.active && touchState.id === -3) endTouch();
   });
 }
+
+// 指インジケータ表示制御
+function showFingerIndicator(x, y, mode) {
+  const el = document.getElementById('finger-indicator');
+  if (!el) return;
+  el.style.transform = `translate(${x}px, ${y}px)`;
+  el.classList.remove('hidden', 'swing', 'walk');
+  if (mode === 'swing') el.classList.add('swing');
+  else if (mode === 'walk') el.classList.add('walk');
+}
+function hideFingerIndicator() {
+  const el = document.getElementById('finger-indicator');
+  el?.classList.add('hidden');
+  el?.classList.remove('swing', 'walk');
+}
+let _controlHintShown = false;
+function showControlHint() {
+  if (_controlHintShown) return;
+  _controlHintShown = true;
+  const el = document.getElementById('control-hint');
+  if (!el) return;
+  el.classList.add('show');
+  clearTimeout(showControlHint._t);
+  showControlHint._t = setTimeout(() => el.classList.remove('show'), 4200);
+}
+function hideControlHint() {
+  const el = document.getElementById('control-hint');
+  el?.classList.remove('show');
+}
+
+// 旧 setupSwipeSword は no-op (canvas タッチは setupUnifiedTouch に統合)
+function setupSwipeSword() { /* deprecated */ }
 
 // アクションボタン
 function setupActionButtons() {
@@ -1732,21 +1776,22 @@ function setupActionButtons() {
 }
 
 function getMoveDirVector() {
-  // スティック入力をワールド座標に変換 (カメラのyaw基準)
+  // 指の起点からの相対オフセット(touchState.moveDx/Dy) をワールド座標に変換 (カメラのyaw基準)
+  // 指が速く動いている瞬間 (=刀振り中) は移動量を抑える → 振りと歩きの干渉を減らす
   const dir = new THREE.Vector3();
-  if (stickState.mag < 0.08) return dir;
-  // カメラの前方 (プレイヤーの向き方向)
+  if (!touchState.active || touchState.moveMag < 0.05) return dir;
+  // 刀の高速スイング中は移動寄与を減らす (停止に近づける)
+  const swingDamp = Math.max(0, 1 - touchState.vMag / 60);
   const yaw = camState.yaw;
   const fwd = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
   const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-  // スティックのY軸(下向き正)→前方への移動でなく、Yが負なら前進
-  dir.addScaledVector(fwd, -stickState.dy);
-  dir.addScaledVector(right, stickState.dx);
+  // 指を画面奥(上方向=dy負)へ動かしたら前進、横は左右に対応
+  dir.addScaledVector(fwd, -touchState.moveDy * swingDamp);
+  dir.addScaledVector(right, touchState.moveDx * swingDamp);
   return dir;
 }
 
-setupStick();
-setupSwipeSword();
+setupUnifiedTouch();
 setupActionButtons();
 
 // キーボード対応 (任意)
@@ -2086,6 +2131,8 @@ function startGame(mode) {
   else ai = null;
   hideAllOverlays();
   document.getElementById('hud').classList.remove('hidden');
+  _controlHintShown = false;
+  showControlHint();
   startRound();
   // 横向き推奨
   try {
@@ -2106,8 +2153,15 @@ function hideAllOverlays() {
 let lastTime = performance.now();
 function loop() {
   const now = performance.now();
-  const dt = Math.min(0.05, (now - lastTime)/1000);
+  let dt = Math.min(0.05, (now - lastTime)/1000);
   lastTime = now;
+
+  // ヒットストップ: 一瞬時間が止まる (ragdoll blade風の "切った瞬間" の手応え)
+  if (camState.hitStop > 0) {
+    camState.hitStop = Math.max(0, camState.hitStop - dt);
+    // ゲームロジック側は dt を 0 に近づけて静止 (描画とカメラシェイクは生かす)
+    dt = dt * 0.05;
+  }
 
   if (STATE.inGame && player && enemy) {
     // プレイヤー移動 (スティック入力)
@@ -2174,11 +2228,16 @@ function loop() {
     enemy.update(dt);
     updateHUD();
 
-    // スワイプ減衰
-    if (!swipeState.active && player.state === 'idle') {
-      player.swingYaw *= 0.85;
-      player.swingPitch *= 0.85;
-      player.swingRoll *= 0.85;
+    // 指を離した時の刀の戻り (構えに戻る)
+    if (!touchState.active && player.state === 'idle') {
+      player.swingYaw   *= 0.82;
+      player.swingPitch *= 0.82;
+      player.swingRoll  *= 0.82;
+    }
+    // 触れていない時の vMag 減衰 (誤発火防止)
+    if (!touchState.active) {
+      touchState.vMag *= 0.7;
+      touchState.vMagPeak *= 0.8;
     }
 
     if (roundActive && (player.hp <= 0 || enemy.hp <= 0)) {
